@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<classpath>
+	<classpathentry kind="con" path="org.eclipse.jdt.launching.JRE_CONTAINER"/>
+	<classpathentry kind="src" path="Trabalho IA - Poupador/src"/>
+	<classpathentry kind="lib" path="Trabalho IA - Poupador/lib/poupador.jar"/>
+	<classpathentry kind="output" path="Trabalho IA - Poupador/classes"/>
+</classpath>
