@@ -89,14 +89,6 @@ public class Poupador extends ProgramaPoupador {
 		for(String key: generalDirections.keySet()) {
 			Point nextPos = getNextPos(key);
 			weight[VisionMapping.valueOf(key).getValue()] += (Mapa.get(nextPos) == null ? 50 : -50);
-			for (int visionPos: generalDirections.get(key)) {
-				Point inMap = getPointLocation(visionPos);
-				if (Mapa.get(inMap) == null) {
-					weight[visionPos] += 100; 
-				} else if (Mapa.get(inMap) > 1) {
-					
-				}
-			}
 		}
 	}
 	
@@ -105,6 +97,7 @@ public class Poupador extends ProgramaPoupador {
 		int[] currentVision = sensor.getVisaoIdentificacao();
 		Point currentPosition = sensor.getPosicao();
 		
+		//Evaluating all vision sensor spots
 		for (int i = 0; i < currentVision.length; i++) {
 			switch(currentVision[i]) {
 				case NOVISION:
@@ -130,16 +123,25 @@ public class Poupador extends ProgramaPoupador {
 				default:
 					if (currentVision[i] >= 200) {
 						System.out.println("Ladrao Found");
-						weight[i] -= 10000;
+						weight[i] += -10000;
 					} else if(currentVision[i] >= 100) {
 						System.out.println("Poupador Found");
-						weight[i] -= 10000;
+						weight[i] += -10000;
 					}
 					
 					Point onMap = getPointLocation(i);
 
 					weight[i] += Mapa.get(onMap) == null ? 500 : -50;
 					break;
+			}
+		}
+		//evaluate only possible moves
+		for (String key: generalDirections.keySet()) {
+			int pos = VisionMapping.valueOf(key).getValue();
+			if (pos == WALL || pos == POWERCOIN || pos == OUTSIDE || pos == COIN) {
+				weight[pos] += -15000;
+			} else {
+				weight[pos] += 50;
 			}
 		}
 		
