@@ -4,6 +4,7 @@ import java.awt.Point;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -30,11 +31,16 @@ public class Poupador extends ProgramaPoupador {
 	public int averageDown = 0;
 	public int averageRight = 0;
 	public int averageLeft = 0;
+	public int previousAction = 0;
+	
+	public String name;
 	
 	public HashMap<String, int[]> generalDirections = new HashMap<String, int[]>();
 	public HashMap<String, Integer> directionsWeight = new HashMap<String, Integer>();
 	public int[] weight;
+	
 	public HashMap<Point, Integer> Mapa = new HashMap<Point, Integer>();
+	
 	public HashMap<Integer, int[]> VisionPointMapping = new HashMap<Integer, int[]>();
 	public int[] generalUp = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
 	public int[] generalDown = {14, 15, 16, 17, 18, 19, 20, 21, 22, 23};
@@ -43,6 +49,8 @@ public class Poupador extends ProgramaPoupador {
 
 
 	public Poupador() {
+		
+		this.name = "Poupador" + Math.floor(Math.random() * 5);
 		generalDirections.put("UP", generalUp);
 		generalDirections.put("DOWN", generalDown);
 		generalDirections.put("LEFT", generalLeft);
@@ -78,86 +86,102 @@ public class Poupador extends ProgramaPoupador {
 
 	public int acao() {
 		weight = new int[24];
-		updateMap(sensor.getPosicao());
 		evaluateMap();
-		evaluateVisibleSurroundings();
-		int move = getMaxWeightMove();
+		int move = evaluateVisibleSurroundings();
 		return move;
 	}
-	
+
 	public void evaluateMap() {
-		for(String key: generalDirections.keySet()) {
-			Point nextPos = getNextPos(key);
-			weight[VisionMapping.valueOf(key).getValue()] += (Mapa.get(nextPos) == null ? 50 : -50);
+		if (previousAction != 0) {
+			weight[previousAction] += -100;			
+		}
+
+		Point currentPos = sensor.getPosicao();
+		if (Mapa.get(currentPos) == null) {
+			Mapa.put(currentPos, 1);
+		} else {
+			Mapa.put(currentPos, Mapa.get(currentPos) + 1);
+		}
+
+		int[] currentVision = sensor.getVisaoIdentificacao();
+		System.out.println(currentPos);
+		for (int i = 0; i < currentVision.length; i++) {
+			Point onMap = getPointLocation(i);
+			System.out.println(onMap);
+			weight[i] += Mapa.get(onMap) == null ? 0 : -5 * Mapa.get(onMap);
+			if (onMap.equals(new Point(-1, -1))) {
+				weight[i] = -100;
+			}
 		}
 	}
 	
-	public void evaluateVisibleSurroundings() {
-
+	public int evaluateVisibleSurroundings() {
+		int move = 0;
 		int[] currentVision = sensor.getVisaoIdentificacao();
-		Point currentPosition = sensor.getPosicao();
+		
+		System.out.println(this.name);
 		
 		//Evaluating all vision sensor spots
 		for (int i = 0; i < currentVision.length; i++) {
 			switch(currentVision[i]) {
-				case NOVISION:
-					weight[i] += -200;
-					break;
-				case OUTSIDE:
-					weight[i] += -600;
-					break;
-				case WALL:
-					weight[i] += -600;
-					break;
 				case BANK:
 					BANK_LOCATION = getPointLocation(i);
 					setKnowsBankLocation(true);
+					setGoal("get coins");
 					weight[i] += 1000;
 					break;
 				case COIN:
-					weight[i] += 100;
-					break;
-				case POWERCOIN:
-					weight[i] += -600;
+					weight[i] += 1000;
 					break;
 				default:
-					if (currentVision[i] >= 200) {
-						System.out.println("Ladrao Found");
-						weight[i] += -10000;
-					} else if(currentVision[i] >= 100) {
+					if (currentVision[i] >= 100 && currentVision[i] < 200) {
 						System.out.println("Poupador Found");
-						weight[i] += -10000;
+						weight[i] += -500;
+					} else if(currentVision[i] >= 200) {
+						System.out.println("Ladrao Found");
+						weight[i] += -1000;
 					}
-					
-					Point onMap = getPointLocation(i);
-
-					weight[i] += Mapa.get(onMap) == null ? 500 : -50;
 					break;
-			}
-		}
-		//evaluate only possible moves
-		for (String key: generalDirections.keySet()) {
-			int pos = VisionMapping.valueOf(key).getValue();
-			if (pos == WALL || pos == POWERCOIN || pos == OUTSIDE || pos == COIN) {
-				weight[pos] += -15000;
-			} else {
-				weight[pos] += 50;
 			}
 		}
 		
-		directionsWeight.put("UP", getAverageFromMove("UP"));
-		directionsWeight.put("DOWN", getAverageFromMove("DOWN"));
-		directionsWeight.put("RIGHT", getAverageFromMove("RIGHT"));
-		directionsWeight.put("LEFT", getAverageFromMove("LEFT"));
-	}
-	
-	public void updateMap (Point pos) {
-		if (Mapa.containsKey(pos)) {
-			Mapa.put(pos, Mapa.get(pos) + 1);
-		} else {
-			Mapa.put(pos, 1);
+		//evaluate directly possible moves (up, down, right, left)
+		for (String key: generalDirections.keySet()) {
+			int pos = VisionMapping.valueOf(key).getValue();
+			int movePos = currentVision[pos];
+			System.out.println(key+": " + movePos);
+			if (movePos == WALL || movePos == POWERCOIN || movePos == OUTSIDE || movePos >= 100) {
+				weight[pos] += -6000;
+			}
 		}
+		
+
+		Integer[] averageWeights = {getAverageFromMove("UP"), getAverageFromMove("DOWN"), getAverageFromMove("RIGHT"), getAverageFromMove("LEFT")};
+		ArrayList<Integer> equalWeights = new ArrayList<Integer>();
+
+		int maxx = Collections.max(Arrays.asList(averageWeights));
+		
+		
+		//Find equal max values
+		for (int i = 0; i < averageWeights.length; i++) {
+			if (averageWeights[i] == maxx) {
+				equalWeights.add(i + 1);
+			}
+		}
+
+		if (equalWeights.size() > 1) {
+			int indice = (int) (Math.random() * (equalWeights.size()));
+			move = equalWeights.get(indice);
+		} else {
+			move = getMaxWeightMove();
+		}
+
+		System.out.println(getAverageFromMove("UP") + " - UP " + getAverageFromMove("DOWN")+ " - DOWN "+getAverageFromMove("RIGHT")+" - RIGHT "+getAverageFromMove("LEFT")+" - LEFT ");
+		
+		previousAction = getOppositeAction(move);
+		return move;
 	}
+
 	
 	public int getAverageFromMove(String move) {
 		int[] moveSpotsInVisionArray = generalDirections.get(move);
@@ -169,6 +193,20 @@ public class Poupador extends ProgramaPoupador {
 		return totalSum;
 	}
 	
+	public int getOppositeAction(int move) {
+		if (move == 7) {
+			return 16;
+		} else if (move == 16) {
+			return 7;
+		} else if (move == 11) {
+			return 12;
+		} else if (move == 12) {
+			return 11;
+		}
+		
+		return 0;
+	}
+	
 	public int getMaxWeightMove() {
 		int largest = -99999999;
 		String move = "";
@@ -178,26 +216,7 @@ public class Poupador extends ProgramaPoupador {
 				move = key;
 			}
 		}
-		
-		System.out.println("THIS IS THE MOVE: "+MoveMapping.valueOf(move).getValue());
-		
-		return MoveMapping.valueOf(move).getValue();
-	}
-	
-	public int weightProb() {
-		int totalWeight = getAverageFromMove("UP") + getAverageFromMove("DOWN") + getAverageFromMove("RIGHT") + getAverageFromMove("LEFT");
-		
-		double rand = Math.random() * totalWeight;
-		String move = "";
-		for (String key: generalDirections.keySet()) {
-			move = key;
-			int moveProb = directionsWeight.get(key);
-			rand -= moveProb;
-			if (rand <= 0) {
-				break;
-			}
-		}
-		
+
 		return MoveMapping.valueOf(move).getValue();
 	}
 	
@@ -227,8 +246,6 @@ public class Poupador extends ProgramaPoupador {
 		Point currentP = sensor.getPosicao();
 		int adjustX = VisionPointMapping.get(visionPos)[0];
 		int adjustY = VisionPointMapping.get(visionPos)[1];
-		System.out.println("PX" + currentP.x + "PY"+currentP.y);
-		System.out.println("AX" + adjustX + "AY"+adjustY);
 		if (currentP.x + adjustX < 30 &&  currentP.x + adjustX >= 0 && currentP.y + adjustY < 30 && currentP.y + adjustY >= 0) {
 			p.x = currentP.x + adjustX;
 			p.y = currentP.y + adjustY;	
