@@ -22,6 +22,12 @@ public class Poupador extends ProgramaPoupador {
     private static final int POWERCOIN = 5;
     private static final int FREE = 0;
     
+    private double metaLearningRate = 0.1;
+    private int goToBankWill = 0;
+    
+    private int noCoinTimeStamp;
+    private int previousCoinAmount = 0; 
+    
     private int W_NOVISION;
     private int W_OUTSIDE;
     private int W_WALL;
@@ -29,11 +35,10 @@ public class Poupador extends ProgramaPoupador {
     private int W_COIN;
     private int W_POWERCOIN;
 
-    private double courage;
+    private double ambition;
     private double fear;
-    private double intelligence;
 
-    private Point BANK_LOCATION;
+    private static Point BANK_LOCATION = new Point(-4, -4);
     private String goal;
     private boolean knowsBankLocation = false;
     private int previousAction = 0;
@@ -42,7 +47,8 @@ public class Poupador extends ProgramaPoupador {
     private HashMap<String, int[]> visionDirections = new HashMap<String, int[]>();
     private int[] weight;
 
-    private HashMap<Point, Integer> Mapa = new HashMap<Point, Integer>();
+    //For visited locations and the amount of times it was visited
+    private HashMap<Point, Integer> ExplorationMap = new HashMap<Point, Integer>();
 
     private HashMap<Integer, int[]> VisionPointMapping = new HashMap<Integer, int[]>();
     private int[] visionUp = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9};
@@ -86,15 +92,15 @@ public class Poupador extends ProgramaPoupador {
         VisionPointMapping.put(22, new int[] {1, 2});
         VisionPointMapping.put(23, new int[] {2, 2});
 
-        setGoal("explore");
-
-        courage = initWeight();
-        intelligence = initWeight();
+        ambition = initWeight();
         fear = initWeight();
+
+        setGoal("explore");
     }
 
     public int acao() {
         System.out.println("Action Init For: " + this.name);
+        System.out.println("Ambition: " + ambition);
         weight = new int[24];
         int move = getActionGoalBasedBehavior();
         return move;
@@ -102,46 +108,93 @@ public class Poupador extends ProgramaPoupador {
     
 
     public int getActionGoalBasedBehavior() {
-    	String currentGoal = getGoal();
-    	int action = 0;
-    	if (currentGoal.equals("explore")) {
-			action = exploreBehavior();
-    	} else if (currentGoal.equals("get coins")) {
-//    		action = getCoinsBehavior();
-    	} else if (currentGoal.equals("go to bank")) {
-//    		action = goToBankBehavior();
-    	}
-
+    	int action = evaluateAction();
     	return action;
     }
+    
+    public void evaluateNoCoinTimeStamp(int prevCoinAmount) {
+    	int currentCoinAmount = sensor.getNumeroDeMoedas();
+    	
+    	if (prevCoinAmount == currentCoinAmount) {
+    		noCoinTimeStamp++;
+    	} else {
+    		noCoinTimeStamp = 0;
+    	}
+    }
 
+    
+    //Evaluates based on non-visited locations
     public void evaluateMap() {
         if (previousAction != 0) {
-            weight[previousAction] += -100;
+            weight[previousAction] += -50;
         }
 
         Point currentPos = sensor.getPosicao();
-        if (Mapa.get(currentPos) == null) {
-            Mapa.put(currentPos, 1);
+        if (ExplorationMap.get(currentPos) == null) {
+            ExplorationMap.put(currentPos, 1);
         } else {
-        	int currentThermal = Mapa.get(currentPos);
-            Mapa.put(currentPos, currentThermal + 1);
+        	int currentThermal = ExplorationMap.get(currentPos);
+            ExplorationMap.put(currentPos, currentThermal + 1);
         }
 
         int[] currentVision = sensor.getVisaoIdentificacao();
         System.out.println(currentPos);
         for (int i = 0; i < currentVision.length; i++) {
             Point onMap = getPointLocation(i);
-            System.out.println("Value: " +  Mapa.get(onMap));
-            weight[i] += Mapa.get(onMap) == null ? 50 : -5 * Mapa.get(onMap);
-            if (onMap.equals(new Point(-1, -1))) {
-                weight[i] = -100;
-            }
+            System.out.println("Value: " +  ExplorationMap.get(onMap));
+            weight[i] += ExplorationMap.get(onMap) == null ? 0 : -5 * ExplorationMap.get(onMap);
         }
     }
     
-    public int exploreBehavior() {
+
+    public void evaluateAmbition() {
+//    	ambition
+//    	noCoinTimeStamp
+//    	metaLearningRate
+//    	pesar moedas de acordo com ambicao / possibilidade de alterar o fator de ambicao do poupador
+    	
+    	
+    }
+    
+    public void evaluateFear() {
+//    	fear
+//    	noCoinTimeStamp
+//    	metaLearningRate
+//    	dois tipos de alteracoes -> sutis e bruscas 
+//
+//    	int coinAmount = sensor.getNumeroDeMoedas();
+//    	fear = fear + (metaLearnRate * coinAmount);
+    }
+    
+    public int evaluateBankWeight () {
+    	int val = 0;
+    	int coinAmount = sensor.getNumeroDeMoedas() < 1 ? -1 : sensor.getNumeroDeMoedas();
+    	int knowsBankLocation = getKnowsBankLocation() ? 1 : 0;
+    	val = 1000 * knowsBankLocation * coinAmount;
+
+		return val;
+    }
+    
+    public int evaluateCoin() {
+    	int val = 0;
+    	int coinAmount = sensor.getNumeroDeMoedas();
+    	int knowsBankLocation = getKnowsBankLocation() ? 1 : -1;
+    	
+    	if (getGoal().equals("explore")) {
+    		val = (int) (50 * knowsBankLocation * ambition) + noCoinTimeStamp;
+    		
+    		//ambicao foi suficiente para mudar o comportamento do poupador
+			return val;
+    	} else if (getGoal().equals("get coins")) {
+    		return (int) (100 * knowsBankLocation * fear);
+    	}
+    	
+    	return val;
+    }
+    
+    public int evaluateAction() {
         evaluateMap();
+
         int action = 0;
         int[] currentVision = sensor.getVisaoIdentificacao();
 
@@ -154,43 +207,40 @@ public class Poupador extends ProgramaPoupador {
                 		BANK_LOCATION = getPointLocation(i);
                         setKnowsBankLocation(true);
                         setGoal("get coins");
-                        weight[i] += 1000;
                 	}
-                	else {
-                		if (sensor.getNumeroDeMoedas() < 1) {
-                			weight[i] -= 200;
-                		} else {
-                			weight[i] += 200;
-                		}
-                		
-                	}
+
+                	weight[i] += evaluateBankWeight();
                 break;
                 case COIN:
-                    weight[i] += 1000;
+                	weight[i] += evaluateCoin();
                 break;
-                case POWERCOIN:
-                    weight[i] -= 200;
-                break;
-
+                
                 default:
                     if (currentVision[i] >= 100 && currentVision[i] < 200) {
-                        System.out.println("Poupador Found");
-                        weight[i] += -500;
+                    	System.out.println("Poupador Found");
+                    	if (!getKnowsBankLocation() && BANK_LOCATION != new Point(-4, -4)) {
+                    		System.out.println("Bank Comunication!");
+                    		setKnowsBankLocation(true);
+                    		setGoal("get coins");
+                    	}
+                        weight[i] += -200;
                     } else if(currentVision[i] >= 200) {
                         System.out.println("Ladrao Found");
-                        weight[i] += -1000;
+                        weight[i] += -500;
                     }
                 break;
             }
         }
 
-        //evaluate directly possible moves (up, down, right, left)
+      //evaluate directly possible moves (up, down, right, left)
         for (String key: visionDirections.keySet()) {
             int pos = VisionMapping.valueOf(key).getValue();
             int movePos = currentVision[pos];
-            System.out.println(key+": " + movePos);
+            System.out.print(key+": " + movePos + " ");
             if (movePos == WALL || movePos == OUTSIDE || movePos >= 100) {
-                weight[pos] += -6000;
+                weight[pos] += -1500;
+            } else if (movePos == POWERCOIN && sensor.getNumeroDeMoedas() < 5) {
+            	weight[pos] += -500;
             }
         }
 
@@ -213,12 +263,17 @@ public class Poupador extends ProgramaPoupador {
             action = getMaxWeightMove();
         }
 
-        System.out.println(getSumOfWeights("UP") + " UP /" + getSumOfWeights("DOWN")+ " DOWN /"+getSumOfWeights("RIGHT")+" RIGHT /"+getSumOfWeights("LEFT")+" LEFT ");
-        
         previousAction = getOppositeAction(action);
-        System.out.println(previousAction);
+        evaluateNoCoinTimeStamp(previousCoinAmount);
+        previousCoinAmount = sensor.getNumeroDeMoedas();
+        
+        System.out.println("No Coin Time Stamp: " + noCoinTimeStamp);
+        printWeightedOptions();
+        printWeightedVisionMatrix();
+
         return action;
     }
+    
     
     public int getSumOfWeights(String move) {
         int[] moveSpotsInVisionArray = visionDirections.get(move);
@@ -229,6 +284,7 @@ public class Poupador extends ProgramaPoupador {
         
         return totalSum;
     }
+    
 
     public int getOppositeAction(int move) {
         if (move == 1) {
@@ -288,6 +344,22 @@ public class Poupador extends ProgramaPoupador {
             p.y = currentP.y + adjustY;	
         } 
         return p;
+    }
+    
+    public void printWeightedVisionMatrix() {
+    	System.out.println("Weighted Vision Matrix");
+    	for (int i = 0; i < weight.length; i++) {
+    		if (i % 5 == 0) {
+    			System.out.println("");
+    		}
+    		System.out.print(weight[i] + "     ");
+    	}
+    	System.out.println("");
+    }
+    
+    public void printWeightedOptions() {
+    	System.out.println(getSumOfWeights("UP") + " UP /" + getSumOfWeights("DOWN")+ " DOWN /"+getSumOfWeights("RIGHT")+" RIGHT /"+getSumOfWeights("LEFT")+" LEFT ");
+    	System.out.println("");
     }
 
     private double initWeight() {
