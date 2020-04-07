@@ -10,10 +10,41 @@ import java.util.List;
 import java.util.Map;
 import java.util.Random;
 
-import algoritmo.enums.MoveMapping;
-import algoritmo.enums.VisionMapping;
 
 public class Poupador extends ProgramaPoupador {
+	
+	public enum MoveMapping {
+		UP(1),
+		DOWN (2),
+		RIGHT(3),
+	    LEFT(4);
+
+	    public final int value ;
+	    MoveMapping(int value) {
+	        this.value = value;
+	    }
+
+	    public int getValue() {
+	    	return value;
+	    }
+	}
+
+	public enum VisionMapping {
+		UP(7),
+		DOWN (16),
+		RIGHT(12),
+		LEFT(11);
+
+	    public final int value ;
+		VisionMapping(int value) {
+	        this.value = value;
+	    }
+
+	    public int getValue() {
+	    	return value;
+	    }
+	}
+
     private static final int NOVISION = -2;
     private static final int OUTSIDE = -1;
     private static final int WALL = 1;
@@ -21,8 +52,10 @@ public class Poupador extends ProgramaPoupador {
     private static final int COIN = 4;
     private static final int POWERCOIN = 5;
     private static final int FREE = 0;
+    private static final int THIEF = 200;
     
     private double metaLearningRate = 0.1;
+
     private int goToBankWill = 0;
     
     private int noCoinTimeStamp;
@@ -39,6 +72,7 @@ public class Poupador extends ProgramaPoupador {
     private double fear;
 
     private static Point BANK_LOCATION = new Point(-4, -4);
+    
     private String goal;
     private boolean knowsBankLocation = false;
     private int previousAction = 0;
@@ -59,7 +93,6 @@ public class Poupador extends ProgramaPoupador {
     public Poupador() {
 
         this.name = "Poupador " + Math.floor(Math.random() * 5);
-
         //Positions on the Vision Sensor for each direction
         visionDirections.put("UP", visionUp);
         visionDirections.put("DOWN", visionDown);
@@ -108,6 +141,7 @@ public class Poupador extends ProgramaPoupador {
     
 
     public int getActionGoalBasedBehavior() {
+    	evaluateFeelings();
     	int action = evaluateAction();
     	return action;
     }
@@ -118,6 +152,7 @@ public class Poupador extends ProgramaPoupador {
     	if (prevCoinAmount == currentCoinAmount) {
     		noCoinTimeStamp++;
     	} else {
+    		goToBankWill = (int) Math.pow(currentCoinAmount, 2);
     		noCoinTimeStamp = 0;
     	}
     }
@@ -166,7 +201,7 @@ public class Poupador extends ProgramaPoupador {
 //    	fear = fear + (metaLearnRate * coinAmount);
     }
     
-    public int evaluateBankWeight () {
+    public int evaluateBankWeight() {
     	int val = 0;
     	int coinAmount = sensor.getNumeroDeMoedas() < 1 ? -1 : sensor.getNumeroDeMoedas();
     	int knowsBankLocation = getKnowsBankLocation() ? 1 : 0;
@@ -177,27 +212,48 @@ public class Poupador extends ProgramaPoupador {
     
     public int evaluateCoin() {
     	int val = 0;
-    	int coinAmount = sensor.getNumeroDeMoedas();
     	int knowsBankLocation = getKnowsBankLocation() ? 1 : -1;
+    	int surroundingThiefAmountVision = isSeeingThief();
     	
     	if (getGoal().equals("explore")) {
     		val = (int) (50 * knowsBankLocation * ambition) + noCoinTimeStamp;
+    		val = surroundingThiefAmountVision > 0 ? val / surroundingThiefAmountVision : val;
     		
-    		//ambicao foi suficiente para mudar o comportamento do poupador
 			return val;
     	} else if (getGoal().equals("get coins")) {
-    		return (int) (100 * knowsBankLocation * fear);
+    		val = (int) (100 * knowsBankLocation * (1 - fear));
+    		val = surroundingThiefAmountVision > 0 ? val / surroundingThiefAmountVision : val;
+    		return  val;
     	}
     	
     	return val;
     }
     
+    public void shouldIBankIt() {
+    	boolean shouldI = false;
+    	if (!BANK_LOCATION.equals(new Point(-4,-4)) && getKnowsBankLocation()) {
+    		fear = (fear == 1) ? 0.9999999999999999 : fear;
+    		System.out.println((goToBankWill / (1 - fear)) + calculateDistanceToPoint(BANK_LOCATION));     		
+    	}
+    
+    }
+    
+//    evaluateGoToBankWill() {
+//    	
+//    }
+//    
+    public void evaluateFeelings() {
+    	//changes to fear, ambition and willingness to go to bank(?)
+    	shouldIBankIt();
+    	System.out.println("Hora de aprender!");
+    }
+    
     public int evaluateAction() {
-        evaluateMap();
-
-        int action = 0;
+    	int action = 0;
         int[] currentVision = sensor.getVisaoIdentificacao();
-
+    	
+        evaluateMap();
+        
         //Evaluating all vision sensor spots
         for (int i = 0; i < currentVision.length; i++) {
             Point onMap = getPointLocation(i);
@@ -218,7 +274,11 @@ public class Poupador extends ProgramaPoupador {
                 default:
                     if (currentVision[i] >= 100 && currentVision[i] < 200) {
                     	System.out.println("Poupador Found");
-                    	if (!getKnowsBankLocation() && BANK_LOCATION != new Point(-4, -4)) {
+                    	
+                    	// Comuncation between a Poupador that knows the bank's location and one in its sight
+                    	// that does not know the location of said bank. We set the flag true and now he is able
+                    	// to access the static variable BANK_LOCATION to his advantage.
+                    	if (!getKnowsBankLocation() && !BANK_LOCATION.equals(new Point(-4,-4))) {
                     		System.out.println("Bank Comunication!");
                     		setKnowsBankLocation(true);
                     		setGoal("get coins");
@@ -274,6 +334,22 @@ public class Poupador extends ProgramaPoupador {
         return action;
     }
     
+    private int isSeeingThief() {
+    	int[] vision = sensor.getVisaoIdentificacao();
+        int thiefNum = 0;
+        for(int i = 0; i< vision.length; i++) {
+            if(vision[i] >= THIEF) {
+                thiefNum++;
+            }
+        }
+
+        return thiefNum;
+    }
+    
+    public int calculateDistanceToPoint(Point finish) {
+    	Point start = sensor.getPosicao();
+        return Math.abs(start.x - finish.x) + Math.abs(start.y - finish.y);
+    }
     
     public int getSumOfWeights(String move) {
         int[] moveSpotsInVisionArray = visionDirections.get(move);
@@ -285,7 +361,6 @@ public class Poupador extends ProgramaPoupador {
         return totalSum;
     }
     
-
     public int getOppositeAction(int move) {
         if (move == 1) {
             return 16;
