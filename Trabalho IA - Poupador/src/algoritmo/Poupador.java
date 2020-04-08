@@ -55,19 +55,10 @@ public class Poupador extends ProgramaPoupador {
     private static final int THIEF = 200;
     
     private double metaLearningRate = 0.1;
-
-    private int goToBankWill = 0;
     
     private int noCoinTimeStamp;
     private int previousCoinAmount = 0; 
     
-    private int W_NOVISION;
-    private int W_OUTSIDE;
-    private int W_WALL;
-    private int W_BANK;
-    private int W_COIN;
-    private int W_POWERCOIN;
-
     private double ambition;
     private double fear;
 
@@ -146,13 +137,17 @@ public class Poupador extends ProgramaPoupador {
     	return action;
     }
     
+    public void evaluateFeelings() {
+    	//changes to fear, ambition and willingness to go to bank(?)
+    	System.out.println("Hora de aprender!");
+    }
+    
     public void evaluateNoCoinTimeStamp(int prevCoinAmount) {
     	int currentCoinAmount = sensor.getNumeroDeMoedas();
     	
     	if (prevCoinAmount == currentCoinAmount) {
     		noCoinTimeStamp++;
     	} else {
-    		goToBankWill = (int) Math.pow(currentCoinAmount, 2);
     		noCoinTimeStamp = 0;
     	}
     }
@@ -179,26 +174,6 @@ public class Poupador extends ProgramaPoupador {
             System.out.println("Value: " +  ExplorationMap.get(onMap));
             weight[i] += ExplorationMap.get(onMap) == null ? 0 : -5 * ExplorationMap.get(onMap);
         }
-    }
-    
-
-    public void evaluateAmbition() {
-//    	ambition
-//    	noCoinTimeStamp
-//    	metaLearningRate
-//    	pesar moedas de acordo com ambicao / possibilidade de alterar o fator de ambicao do poupador
-    	
-    	
-    }
-    
-    public void evaluateFear() {
-//    	fear
-//    	noCoinTimeStamp
-//    	metaLearningRate
-//    	dois tipos de alteracoes -> sutis e bruscas 
-//
-//    	int coinAmount = sensor.getNumeroDeMoedas();
-//    	fear = fear + (metaLearnRate * coinAmount);
     }
     
     public int evaluateBankWeight() {
@@ -229,25 +204,25 @@ public class Poupador extends ProgramaPoupador {
     	return val;
     }
     
-    public void shouldIBankIt() {
-    	boolean shouldI = false;
-    	if (!BANK_LOCATION.equals(new Point(-4,-4)) && getKnowsBankLocation()) {
-    		fear = (fear == 1) ? 0.9999999999999999 : fear;
-    		System.out.println((goToBankWill / (1 - fear)) + calculateDistanceToPoint(BANK_LOCATION));     		
-    	}
-    
+    public int evaluateShouldGoTowardsBank() {
+    	int val = 0;
+    	int coinAmount = sensor.getNumeroDeMoedas();
+    	int thiefAmount = isSeeingThief();
+    	int imuneRoundAmount = sensor.getNumeroJogadasImunes() > 0 ?sensor.getNumeroJogadasImunes() : 1;
+    	val = (int) ((coinAmount * (15 + noCoinTimeStamp + thiefAmount) * ambition * imuneRoundAmount) / (1 - fear));
+    	System.out.println("Valor vontade/peso de ir ao banco: " + val);
+    	return val;
     }
     
-//    evaluateGoToBankWill() {
-//    	
-//    }
-//    
-    public void evaluateFeelings() {
-    	//changes to fear, ambition and willingness to go to bank(?)
-    	shouldIBankIt();
-    	System.out.println("Hora de aprender!");
+    public int evaluatePowerCoin() {
+    	int val = 0;
+    	int coinAmount = sensor.getNumeroDeMoedas();
+    	int thiefAmount = isSeeingThief();
+    	int hasCoinToUse = sensor.getNumeroDeMoedas() >= 5 && thiefAmount > 0 ? 1 : 0;
+    	val = (int) ((coinAmount * thiefAmount * ambition / 1 - fear)) * hasCoinToUse;
+    	return val;
     }
-    
+   
     public int evaluateAction() {
     	int action = 0;
         int[] currentVision = sensor.getVisaoIdentificacao();
@@ -256,7 +231,7 @@ public class Poupador extends ProgramaPoupador {
         
         //Evaluating all vision sensor spots
         for (int i = 0; i < currentVision.length; i++) {
-            Point onMap = getPointLocation(i);
+
             switch(currentVision[i]) {
                 case BANK:
                 	if (!getKnowsBankLocation()) {
@@ -270,6 +245,9 @@ public class Poupador extends ProgramaPoupador {
                 case COIN:
                 	weight[i] += evaluateCoin();
                 break;
+                case POWERCOIN:
+                	weight[i] += evaluatePowerCoin();
+                	break;
                 
                 default:
                     if (currentVision[i] >= 100 && currentVision[i] < 200) {
@@ -291,18 +269,38 @@ public class Poupador extends ProgramaPoupador {
                 break;
             }
         }
+        
+      //Should I Bank it?
+        if (getKnowsBankLocation()) {
+        	if (BANK_LOCATION.x < sensor.getPosicao().x) {
+        		weight[11] += evaluateShouldGoTowardsBank();
+        	}
+        	
+        	if (BANK_LOCATION.x > sensor.getPosicao().x) {
+        		weight[12] += evaluateShouldGoTowardsBank();
+        	}
+        	
+        	if (BANK_LOCATION.y < sensor.getPosicao().y) {
+        		weight[7] += evaluateShouldGoTowardsBank();
+        	}
+        	
+        	if (BANK_LOCATION.y > sensor.getPosicao().y) {
+        		weight[16] += evaluateShouldGoTowardsBank();
+        	}            	
+        }
 
-      //evaluate directly possible moves (up, down, right, left)
+      //evaluate directly possible moves (up, down, right, left) to exclude obstacles
         for (String key: visionDirections.keySet()) {
             int pos = VisionMapping.valueOf(key).getValue();
             int movePos = currentVision[pos];
             System.out.print(key+": " + movePos + " ");
             if (movePos == WALL || movePos == OUTSIDE || movePos >= 100) {
-                weight[pos] += -1500;
+                weight[pos] += -10000;
             } else if (movePos == POWERCOIN && sensor.getNumeroDeMoedas() < 5) {
             	weight[pos] += -500;
             }
         }
+        
 
         Integer[] diretionWeights = {getSumOfWeights("UP"), getSumOfWeights("DOWN"), getSumOfWeights("RIGHT"), getSumOfWeights("LEFT")};
         ArrayList<Integer> equalWeights = new ArrayList<Integer>();
@@ -370,6 +368,20 @@ public class Poupador extends ProgramaPoupador {
             return 12;
         } else if (move == 3) {
             return 11;
+        }
+
+        return 0;
+    }
+    
+    public int getMoveAction(int move) {
+        if (move == 1) {
+            return 7;
+        } else if (move == 2) {
+            return 16;
+        } else if (move == 4) {
+            return 11;
+        } else if (move == 3) {
+            return 12;
         }
 
         return 0;
